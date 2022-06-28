@@ -1,0 +1,2805 @@
+<!-- Define CSS rules -->
+<style>
+    body, button, input[type="text"], input[type="number"], input[type="file"], select, table {
+        font-family: monospace;
+        font-size: 0.9rem;
+    }
+
+    .row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        height: 100%;
+    }
+
+    .column-1 {
+        flex: 1;
+        height: 100%;
+        overflow: auto;
+    }
+
+    .column-2 {
+        flex: 2;
+        height: 100%;
+        overflow: auto;
+    }
+
+    .left-border {
+        border-left: 1px solid black;
+    }
+
+    .modal {
+        display: none;
+        position: fixed;
+        z-index: 1;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgb(0, 0, 0);
+        background-color: rgba(0, 0, 0, 0.4);
+    }
+
+    .modal-content {
+        background-color: #fefefe;
+        position: relative;
+        top: 10%;
+        margin: auto;
+        padding: 20px;
+        border: 1px solid #888;
+        width: 50%;
+    }
+
+    #add-table-modal-body {
+        max-height: 60%;
+        overflow: auto;
+    }
+
+    #view-sql-modal-body {
+        max-height: 60%;
+        overflow: auto;
+    }
+
+    .confirm-button {
+        border-color: #28a745;
+        background-color: #28a745;
+        color: white;
+    }
+
+    .reject-button {
+        border-color: #dc3545;
+        background-color: #dc3545;
+        color: white;
+    }
+
+    select:invalid {
+        color: gray;
+    }
+
+    select:invalid>option {
+        color: black;
+    }
+
+    table, tr, th, td {
+        border: 1px solid black;
+        border-collapse: collapse;
+    }
+
+    .borderless-table, .borderless-table>tr, .borderless-table>tr>td {
+        border: none;
+    }
+
+    input[type="radio"], label {
+        vertical-align: middle;
+    }
+</style>
+
+<!-- Modal for the table editing form -->
+<div id="add-table-modal" class="modal">
+    <div class="modal-content">
+        <p style="display: inline">Table name:</p>
+        <input type="text" placeholder="Table name" style="margin-left: 5px" id="table-name-input">
+        <button class="confirm-button" style="float: right" id="add-field-button">Add field</button>
+        <hr>
+        <div id="add-table-modal-body"></div>
+        <hr>
+        <button id="cancel-modal-button">Cancel</button>
+        <button class="confirm-button" id="save-modal-button" style="float: right">Save</button>
+    </div>
+</div>
+
+<!-- Modal for table importing form -->
+<div id="import-tables-modal" class="modal">
+    <div class="modal-content">
+        <h3 style="margin-top: 0; margin-bottom: 0">Import tables</h3>
+        <hr>
+        <input type="file" id="import-tables-file-input" accept=".json" multiple>
+        <br>
+        <br>
+        <input type="radio" id="duplicate-tables-ignore-button" name="duplicate-table-resolve" value="ignore" checked>
+        <label for="duplicate-tables-ignore-button">Ignore duplicate tables</label>
+        <br>
+        <input type="radio" id="duplicate-tables-overwrite-button" name="duplicate-table-resolve" value="overwrite">
+        <label for="duplicate-tables-overwrite-button">Overwrite duplicate tables</label>
+        <hr>
+        <button id="cancel-modal-button-2">Cancel</button>
+        <button class="confirm-button" id="save-modal-button-2" style="float: right">Save</button>
+    </div>
+</div>
+
+<!-- Modal for viewing the generated SQL code -->
+<div id="view-sql-modal" class="modal">
+    <div class="modal-content" style="min-height: 10%">
+        <h3 style="display: inline">Generated SQL:</h3>
+        <div id="validation-result-block" style="overflow: auto"></div>
+        <hr>
+        <div id="view-sql-modal-body"></div>
+        <hr>
+        <button id="close-modal-button">Close</button>
+        <button class="confirm-button" id="validate-button" style="float: right">Validate</button>
+        <button id="copy-to-clipboard-button" style="float: right; margin-right: 5px">Copy to clipboard</button>
+    </div>
+</div>
+
+<!-- Main UI block -->
+<div class="row">
+    <div id="table-data" class="column-1">
+        <div style="padding: 5px">
+            <button id="add-table-button" class="confirm-button">Add table</button>
+            <button id="import-tables-button" class="confirm-button">Import</button>
+            <button id="export-tables-button">Export</button>
+            <hr>
+            <div id="table-blocks"></div>
+        </div>
+    </div>
+    <div id="visual-blocks-data" class="column-2 left-border">
+        <div style="padding: 5px">
+            <button id="topmost-select-button" class="confirm-button">SELECT</button>
+            <button id="topmost-multiselect-button" class="confirm-button">MULTISELECT</button>
+            <button id="topmost-insert-button" class="confirm-button">INSERT</button>
+            <button id="topmost-update-button" class="confirm-button">UPDATE</button>
+            <button id="topmost-delete-button" class="confirm-button">DELETE</button>
+            <button id="view-sql-button">View SQL</button>
+            <button id="return-button">Return</button>
+            <hr>
+            <div id="query-builder-container"></div>
+        </div>
+    </div>
+</div>
+
+<!-- Application logic -->
+<script>
+    /*
+     * Convert array of values to HTML selector options.
+     */
+    function generateOptions(list) {
+        return list.map(x => {
+            option = document.createElement("option");
+            option.value = x;
+            option.innerHTML = x;
+            return option;
+        });
+    }
+
+
+    /*
+     * Convert array of existing types to HTML selector options.
+     */
+    function generateTypeOptions() {
+        return generateOptions(window.app.types);
+    }
+
+
+    /*
+     * Convert array of existing sorting directions to HTML selector options.
+     */
+    function generateDirectionOptions() {
+        return generateOptions(["ASC", "DESC"]);
+    }
+
+
+    /*
+     * Convert array of existing join types to HTML selector options.
+     */
+    function generateJoinOptions() {
+        return generateOptions(["CROSS JOIN", "INNER JOIN", "LEFT JOIN", "RIGHT JOIN", "FULL JOIN"]);
+    }
+
+
+    /*
+     * Convert array of existing join types to HTML selector options.
+     */
+    function generateCombinationOptions() {
+        return generateOptions(["UNION ALL", "UNION", "INTERSECT ALL", "INTERSECT", "EXCEPT ALL", "EXCEPT"]);
+    }
+
+
+    /*
+     * Convert array of existing select types to HTML selector options.
+     */
+    function generateSelectTypeOptions() {
+        return generateOptions(["ALL", "DISTINCT"]);
+    }
+
+
+    /*
+     * Convert array of existing grouping types to HTML selector options.
+     */
+    function generateGroupByTypeOptions() {
+        return generateOptions(["", "ROLLUP", "CUBE"]);
+    }
+
+
+    /*
+     * Convert array of existing insertion options to HTML selector options.
+     */
+    function generateInsertDataOptions() {
+        return generateOptions(["DEFAULT VALUES", "VALUES", "SELECT", "MULTISELECT"]);
+    }
+
+
+    /*
+     * Convert array of existing conflict-resolution options to HTML selector options.
+     */
+    function generateOnConflictOptions() {
+        return generateOptions(["", "DO NOTHING", "DO UPDATE"]);
+    }
+
+
+    /*
+     * Add new row to the table editing form.
+     */
+    function addFieldRow(addTableModalBody, name, type, dimensions) {
+        let row = document.createElement("div");
+        row.style.marginTop = "3px";
+
+        let nameInput = document.createElement("input");
+        nameInput.type = "text";
+        nameInput.placeholder = "Field name";
+        nameInput.value = name;
+
+        let typeSelector = document.createElement("select");
+        typeSelector.required = true;
+        typeSelector.style.marginLeft = "5px";
+
+        let typeSelectorPlaceholder = document.createElement("option");
+        typeSelectorPlaceholder.value = "";
+        typeSelectorPlaceholder.innerHTML = "Field type";
+        typeSelectorPlaceholder.hidden = true;
+
+        typeSelector.append(typeSelectorPlaceholder, ...generateTypeOptions());
+        typeSelector.value = type;
+
+        let dimensionsInput = document.createElement("input");
+        dimensionsInput.type = "number";
+        dimensionsInput.placeholder = "Dimensions";
+        dimensionsInput.value = dimensions;
+        dimensionsInput.min = 0;
+        dimensionsInput.style.marginLeft = "5px";
+
+        let inputFieldsTriple = [nameInput, typeSelector, dimensionsInput];
+
+        let deleteButton = createDeleteButton(() => {
+            window.app.modalFields = window.app.modalFields.filter(x => x !== inputFieldsTriple);
+            row.remove();
+        });
+
+        window.app.modalFields.push(inputFieldsTriple);
+        row.append(nameInput, typeSelector, dimensionsInput, deleteButton);
+        addTableModalBody.append(row);
+    };
+
+
+    /*
+     * Fill table editing form with values.
+     */
+    function fillAddTableModal(name, fields) {
+        let tableNameInput = document.getElementById("table-name-input");
+        tableNameInput.value = name;
+
+        let addTableModalBody = document.getElementById("add-table-modal-body");
+        addTableModalBody.innerHTML = "";
+        window.app.modalFields = [];
+
+        for (let x of fields)
+            addFieldRow(addTableModalBody, x[0], x[1], x[2]);
+    }
+
+
+    /*
+     * Validate SQL identifier.
+     */
+    function validateIdentifier(s) {
+        return s !== "" && s === s.trim() && /^[a-z_][a-z_0-9$]*$/.test(s);
+    }
+
+
+    /*
+     * Create table object from data inside the table editing form.
+     */
+    function modalToTableObject() {
+        let tableNameInput = document.getElementById("table-name-input");
+        return {
+            name: tableNameInput.value,
+            fields: window.app.modalFields.map(x => [x[0].value, x[1].value, +x[2].value])
+        };
+    }
+
+
+    /*
+     * Validate the table object's contents.
+     */
+    function validateTableData(tableObject, performAlerts) {
+        let currentName = window.app.currentTable === null ? "" : window.app.currentTable.name;
+        let messageHandler = performAlerts ? alert : s => null;
+
+        if (!validateIdentifier(tableObject.name)) {
+            messageHandler("Invalid table name");
+            return false;
+        }
+        if (window.app.tables.some(x => x.name === tableObject.name && x.name !== currentName)) {
+            messageHandler("A table with such name already exists");
+            return false;
+        }
+        if (tableObject.fields.length === 0) {
+            messageHandler("A table must have at least 1 field");
+            return false;
+        }
+
+        let fieldNames = tableObject.fields.map(x => x[0]);
+        if (fieldNames.some(x => !validateIdentifier(x))) {
+            messageHandler("Invalid field name");
+            return false;
+        }
+        if (fieldNames.length !== new Set(fieldNames).size) {
+            messageHandler("Duplicate field name");
+            return false;
+        }
+
+        let fieldTypes = tableObject.fields.map(x => x[1]);
+        if (fieldTypes.some(x => x === "")) {
+            messageHandler("Field type missing");
+            return false;
+        }
+
+        let fieldDimensions = tableObject.fields.map(x => x[2]);
+        if (fieldDimensions.some(x => isNaN(x) || x < 0 || x % 1 !== 0)) {
+            messageHandler("Invalid dimensions");
+            return false;
+        }
+
+        return true;
+    }
+
+
+    /*
+     * Validate the table object's structure.
+     */
+    function validateTableStructure(tableObject) {
+        return tableObject !== null &&
+            typeof tableObject === "object" &&
+            Object.keys(tableObject).length === 2 &&
+            "name" in tableObject &&
+            typeof tableObject.name === "string" &&
+            "fields" in tableObject &&
+            Array.isArray(tableObject.fields) &&
+            tableObject.fields.every(x => Array.isArray(x) && x.length === 3 && typeof x[0] === "string" && window.app.types.includes(x[1]) && typeof x[2] === "number");
+    }
+
+
+    /*
+     * Serialize tables in custom JSON-based format.
+     */
+    function serializeTables() {
+        let tables = window.app.tables.map(x => {
+            return {
+                name: x.name,
+                fields: x.fields,
+                dimensions: x.dimensions
+            };
+        });
+        return JSON.stringify(tables);
+    }
+
+
+    /*
+     * Create an HTML table from a table object.
+     */
+    function tableObjectToTableRows(tableObject) {
+        let nameRow = document.createElement("tr");
+        let nameTh = document.createElement("th");
+        nameTh.innerHTML = tableObject.name;
+        nameTh.colSpan = 2;
+
+        nameRow.append(nameTh);
+
+        let fieldsRows = tableObject.fields.map(x => {
+            let row = document.createElement("tr");
+            let nameCell = document.createElement("td");
+            let typeCell = document.createElement("td");
+            nameCell.innerHTML = x[0];
+            typeCell.innerHTML = x[1] + "[]".repeat(x[2]);
+            row.append(nameCell, typeCell);
+            return row;
+        });
+
+        return [nameRow, ...fieldsRows];
+    }
+
+
+    /*
+     * Add a table block to the list of tables inside the UI.
+     */
+    function addTableBlock(tableObject) {
+        let tableBlocks = document.getElementById("table-blocks");
+
+        let block = document.createElement("div");
+        block.style.marginBottom = "20px";
+
+        let table = document.createElement("table");
+        table.style.width = "100%";
+        table.append(...tableObjectToTableRows(tableObject));
+        tableObject.table = table;
+
+        let editButton = document.createElement("button");
+        editButton.textContent = "Edit";
+        editButton.style.marginTop = "5px";
+        editButton.onclick = () => {
+            window.app.currentTable = tableObject;
+            fillAddTableModal(tableObject.name, tableObject.fields, tableObject.dimensions);
+            let addTableModal = document.getElementById("add-table-modal");
+            addTableModal.style.display = "block";
+        };
+
+        let deleteButton = document.createElement("button");
+        deleteButton.textContent = "Delete";
+        deleteButton.style.marginTop = "5px";
+        deleteButton.style.float = "right";
+        deleteButton.classList.add("reject-button");
+        deleteButton.onclick = () => {
+            if (confirm("Confirm deletion")) {
+                tableObject.table = null;
+                window.app.tables = window.app.tables.filter(x => x !== tableObject);
+                block.remove();
+            }
+        };
+
+        block.append(table, editButton, deleteButton);
+
+        window.app.tables.push(tableObject);
+        tableBlocks.append(block);
+    }
+
+
+    /*
+     * Update currently edited table from the given table object.
+     */
+    function updateCurrentTable(tableObject) {
+        window.app.currentTable.name = tableObject.name;
+        window.app.currentTable.fields = tableObject.fields;
+        window.app.currentTable.dimensions = tableObject.dimensions;
+        window.app.currentTable.table.innerHTML = "";
+        window.app.currentTable.table.append(...tableObjectToTableRows(tableObject));
+    }
+
+
+    /*
+     * Initialize the logic for the table editing modal.
+     */
+    function setupAddTableModalBehavior() {
+        let addTableModal = document.getElementById("add-table-modal");
+        let addTableModalBody = document.getElementById("add-table-modal-body");
+        let addTableButton = document.getElementById("add-table-button");
+        let addFieldButton = document.getElementById("add-field-button");
+        let cancelModalButton = document.getElementById("cancel-modal-button");
+        let saveModalButton = document.getElementById("save-modal-button");
+
+        addTableButton.onclick = () => {
+            window.app.currentTable = null;
+            fillAddTableModal("", [["", "", 0]]);
+            addTableModal.style.display = "block";
+        };
+
+        addFieldButton.onclick = () => {
+            addFieldRow(addTableModalBody, "", "", 0);
+        };
+
+        cancelModalButton.onclick = () => {
+            addTableModal.style.display = "none";
+        };
+
+        saveModalButton.onclick = () => {
+            let tableObject = modalToTableObject();
+
+            if (!validateTableData(tableObject, true))
+                return;
+
+            if (window.app.currentTable === null)
+                addTableBlock(tableObject);
+            else
+                updateCurrentTable(tableObject);
+
+            addTableModal.style.display = "none";
+        };
+    }
+
+
+    /*
+     * Initialize the logic for the table importing modal.
+     */
+    function setupImportTablesModalBehavior() {
+        let importTablesModal = document.getElementById("import-tables-modal");
+        let importTablesButton = document.getElementById("import-tables-button");
+        let importTablesFileInput = document.getElementById("import-tables-file-input");
+        let duplicateTablesIgnoreButton = document.getElementById("duplicate-tables-ignore-button");
+        let duplicateTablesOverwriteButton = document.getElementById("duplicate-tables-overwrite-button");
+        let cancelModalButton = document.getElementById("cancel-modal-button-2");
+        let saveModalButton = document.getElementById("save-modal-button-2");
+
+        importTablesButton.onclick = () => {
+            window.app.currentTable = null;
+            importTablesFileInput.value = "";
+            importTablesModal.style.display = "block";
+        };
+
+        cancelModalButton.onclick = () => {
+            importTablesModal.style.display = "none";
+        };
+
+        saveModalButton.onclick = async () => {
+            let tableObjects = [];
+            let success = true;
+
+            for (let file of importTablesFileInput.files) {
+                let text = await file.text();
+                try {
+                    let objects = JSON.parse(text);
+
+                    if (Array.isArray(objects) && objects.every(validateTableStructure))
+                        for (let object of objects)
+                            tableObjects.push(object);
+                    else
+                        throw new Error("Invalid table structure");
+                } catch (e) {
+                    success = false;
+                }
+            }
+
+            if (success)
+                for (let tableObject of tableObjects) {
+                    if (duplicateTablesOverwriteButton.checked)
+                        window.app.currentTable = window.app.tables.find(x => x.name === tableObject.name) || null;
+                    if (validateTableData(tableObject, false)) {
+                        if (window.app.currentTable !== null)
+                            updateCurrentTable(tableObject);
+                        else
+                            addTableBlock(tableObject);
+                    }
+                }
+            else
+                alert("Failed to import tables from a file");
+
+            importTablesModal.style.display = "none";
+        };
+    }
+
+
+    /*
+     * Initialize the logic for the table exporting modal.
+     */
+    function setupExportButtonBehavior() {
+        let exportTablesButton = document.getElementById("export-tables-button");
+
+        exportTablesButton.onclick = () => {
+            let link = document.createElement("a");
+            link.href = `data:text/plain;charset=utf-8,${encodeURIComponent(serializeTables())}`;
+            link.download = "tables.json";
+
+            link.style.display = "none";
+            document.body.appendChild(link);
+
+            link.click();
+
+            document.body.removeChild(link);
+        };
+    }
+
+
+    /*
+     * Generate SQL string with semicolon at the end.
+     */
+    function generateSqlWithSemicolon(sqlObject) {
+        return generateSql(sqlObject) + ";";
+    }
+
+
+    /*
+     * Generate SQL string.
+     */
+    function generateSql(sqlObject) {
+        return generateSqlLines(sqlObject).join("\n");
+    }
+
+
+    /*
+     * Generate lines of SQL code.
+     */
+    function generateSqlLines(sqlObject) {
+        let result = [];
+
+        if (sqlObject.type === "select") {
+            if (sqlObject.with.length) {
+                generateSqlLinesWith(result, sqlObject.with);
+            }
+
+            if (sqlObject.select.length) {
+                result.push(`SELECT ${sqlObject.selectType}`);
+                for (let i = 0; i < sqlObject.select.length; i++) {
+                    if (i) result[result.length-1] += ",";
+                    let x = sqlObject.select[i];
+                    let expression = `  ${x.expression}`;
+                    if (x.alias) expression += ` AS ${x.alias}`;
+                    result.push(expression);
+                }
+            }
+
+            if (sqlObject.from.length) {
+                result.push("FROM");
+                generateSqlLinesDataSource(result, sqlObject.from);
+            }
+
+            if (sqlObject.where) result.push(`WHERE ${sqlObject.where}`);
+
+            if (sqlObject.groupBy.length) {
+                result.push(`GROUP BY ${sqlObject.groupByType}(`);
+                for (let i = 0; i < sqlObject.groupBy.length; i++) {
+                    if (i) result[result.length-1] += ",";
+                    let x = sqlObject.groupBy[i];
+                    let expression = `  ${x.expression}`;
+                    result.push(expression);
+                }
+                result.push(")");
+            }
+
+            if (sqlObject.having) result.push(`HAVING ${sqlObject.having}`);
+
+            if (sqlObject.orderBy.length) {
+                result.push("ORDER BY");
+                for (let i = 0; i < sqlObject.orderBy.length; i++) {
+                    if (i) result[result.length-1] += ",";
+                    let x = sqlObject.orderBy[i];
+                    let expression = `  ${x.expression} ${x.direction}`;
+                    result.push(expression);
+                }
+            }
+
+            if (sqlObject.limit) result.push(`LIMIT ${sqlObject.limit}`);
+
+            if (sqlObject.offset) result.push(`OFFSET ${sqlObject.offset}`);
+        } else if (sqlObject.type === "multiselect") {
+            if (sqlObject.with.length) {
+                generateSqlLinesWith(result, sqlObject.with);
+            }
+
+            for (let i = 0; i < sqlObject.subselect.length; i++) {
+                if (i) result.push(sqlObject.subselect[i].combination);
+                result.push("(");
+                for (let line of generateSqlLines(sqlObject.subselect[i].data))
+                    result.push(`  ${line}`);
+                result.push(")");
+            }
+
+            if (sqlObject.orderBy.length) {
+                result.push("ORDER BY");
+                for (let i = 0; i < sqlObject.orderBy.length; i++) {
+                    if (i) result[result.length-1] += ",";
+                    let x = sqlObject.orderBy[i];
+                    let expression = `  ${x.expression} ${x.direction}`;
+                    result.push(expression);
+                }
+            }
+
+            if (sqlObject.limit) result.push(`LIMIT ${sqlObject.limit}`);
+
+            if (sqlObject.offset) result.push(`OFFSET ${sqlObject.offset}`);
+        } else if (sqlObject.type === "values") {
+            if (sqlObject.values.length) {
+                result.push("VALUES");
+                for (let i = 0; i < sqlObject.values.length; i++) {
+                    if (i) result[result.length-1] += ",";
+                    result.push(`  (${sqlObject.values[i].join(", ")})`);
+                }
+            }
+        } else if (sqlObject.type === "insert") {
+            if (sqlObject.with.length) {
+                generateSqlLinesWith(result, sqlObject.with);
+            }
+
+            if (sqlObject.insert) {
+                result.push(`INSERT INTO ${sqlObject.insert}`);
+            }
+
+            if (sqlObject.insert) {
+                if (sqlObject.insertAlias) result[result.length-1] += ` AS ${sqlObject.insertAlias}`;
+            }
+
+            if (sqlObject.insert) {
+                if (sqlObject.insertFields.length) result[result.length-1] += ` (${sqlObject.insertFields.join(", ")})`;
+            }
+
+            if (sqlObject.insert) {
+                if (sqlObject.insertData.type === "DEFAULT VALUES") {
+                    result.push("DEFAULT VALUES");
+                } else {
+                    result.push("(");
+                    for (let line of generateSqlLines(sqlObject.insertData.data))
+                        result.push(`  ${line}`);
+                    result.push(")");
+                }
+            }
+
+            if (sqlObject.onConflict.type === "DO NOTHING") {
+                result.push("ON CONFLICT DO NOTHING");
+            } else if (sqlObject.onConflict.type === "DO UPDATE") {
+                result.push(`ON CONFLICT (${sqlObject.onConflict.data.target}) DO UPDATE`);
+                result.push("SET");
+                for (let i = 0; i < sqlObject.onConflict.data.set.length; i++) {
+                    if (i) result[result.length-1] += ",";
+                    let x = sqlObject.onConflict.data.set[i];
+                    if (x.type === "expression") {
+                        result.push(`  (${x.fields.join(", ")}) = ROW (${x.data.join(", ")})`);
+                    } else if (x.type === "select") {
+                        result.push(`  (${x.fields.join(", ")}) = (`);
+                        for (let line of generateSqlLines(x.data))
+                            result.push(`    ${line}`);
+                        result.push("  )");
+                    }
+                }
+                if (sqlObject.onConflict.data.where) result.push(`WHERE ${sqlObject.onConflict.data.where}`);
+            }
+
+            if (sqlObject.returning.length) {
+                result.push("RETURNING");
+                for (let i = 0; i < sqlObject.returning.length; i++) {
+                    if (i) result[result.length-1] += ",";
+                    let x = sqlObject.returning[i];
+                    let expression = `  ${x.expression}`;
+                    if (x.alias) expression += ` AS ${x.alias}`;
+                    result.push(expression);
+                }
+            }
+        } else if (sqlObject.type === "update") {
+            if (sqlObject.with.length) {
+                generateSqlLinesWith(result, sqlObject.with);
+            }
+
+            if (sqlObject.update) {
+                result.push(`UPDATE ${sqlObject.update}`);
+            }
+
+            if (sqlObject.update) {
+                if (sqlObject.updateAlias) result[result.length-1] += ` AS ${sqlObject.updateAlias}`;
+            }
+
+            if (sqlObject.set.length) {
+                result.push("SET");
+                for (let i = 0; i < sqlObject.set.length; i++) {
+                    if (i) result[result.length-1] += ",";
+                    let x = sqlObject.set[i];
+                    if (x.type === "expression") {
+                        result.push(`  (${x.fields.join(", ")}) = ROW (${x.data.join(", ")})`);
+                    } else if (x.type === "select") {
+                        result.push(`  (${x.fields.join(", ")}) = (`);
+                        for (let line of generateSqlLines(x.data))
+                            result.push(`    ${line}`);
+                        result.push("  )");
+                    }
+                }
+            }
+
+            if (sqlObject.from.length) {
+                result.push("FROM");
+                generateSqlLinesDataSource(result, sqlObject.from);
+            }
+
+            if (sqlObject.where) result.push(`WHERE ${sqlObject.where}`);
+
+            if (sqlObject.returning.length) {
+                result.push("RETURNING");
+                for (let i = 0; i < sqlObject.returning.length; i++) {
+                    if (i) result[result.length-1] += ",";
+                    let x = sqlObject.returning[i];
+                    let expression = `  ${x.expression}`;
+                    if (x.alias) expression += ` AS ${x.alias}`;
+                    result.push(expression);
+                }
+            }
+        } else if (sqlObject.type === "delete") {
+            if (sqlObject.with.length) {
+                generateSqlLinesWith(result, sqlObject.with);
+            }
+
+            if (sqlObject.from) {
+                result.push(`DELETE FROM ${sqlObject.from}`);
+            }
+
+            if (sqlObject.from) {
+                if (sqlObject.fromAlias) result[result.length-1] += ` AS ${sqlObject.fromAlias}`;
+            }
+
+            if (sqlObject.using.length) {
+                result.push("USING");
+                generateSqlLinesDataSource(result, sqlObject.using);
+            }
+
+            if (sqlObject.where) result.push(`WHERE ${sqlObject.where}`);
+
+            if (sqlObject.returning.length) {
+                result.push("RETURNING");
+                for (let i = 0; i < sqlObject.returning.length; i++) {
+                    if (i) result[result.length-1] += ",";
+                    let x = sqlObject.returning[i];
+                    let expression = `  ${x.expression}`;
+                    if (x.alias) expression += ` AS ${x.alias}`;
+                    result.push(expression);
+                }
+            }
+        }
+
+        return result;
+    }
+
+
+    /*
+     * Generate lines of SQL code for WITH statement.
+     */
+    function generateSqlLinesWith(result, with_) {
+        let anyRecursive = with_.some(x => x.recursive);
+        for (let i = 0; i < with_.length; i++) {
+            let x = with_[i];
+            if (i) result[result.length-1] += `, ${x.alias} AS (`;
+            else result.push("WITH " + "RECURSIVE ".repeat(anyRecursive) + `${x.alias} AS (`);
+            for (let line of generateSqlLines(x.sqlObject))
+                result.push(`  ${line}`);
+            result.push(")");
+        }
+    }
+
+
+    /*
+     * Generate lines of SQL code for FROM/USING statement.
+     */
+    function generateSqlLinesDataSource(result, dataSource) {
+        for (let i = 0; i < dataSource.length; i++) {
+            let x = dataSource[i];
+            let expression = "  ";
+            if (i) {
+                expression += `${x.join} `;
+                if (x.lateral) expression += `LATERAL `;
+            }
+            if (x.type === "expression") {
+                expression += x.data;
+            } else if (x.type === "select") {
+                expression += "(";
+                result.push(expression);
+                for (let line of generateSqlLines(x.data))
+                    result.push(`    ${line}`);
+                expression = "  )";
+            }
+            if (x.alias) expression += ` AS ${x.alias}`;
+            if (i && x.condition) expression += ` ON ${x.condition}`;
+            result.push(expression);
+        }
+    }
+
+
+    /*
+     * Save the contents of the query builder to the currently edited query object.
+     */
+    function saveObjectChanges() {
+        let sqlObject = window.app.queryBuilderStack[window.app.queryBuilderStack.length-1];
+
+        if (sqlObject.type === "select") {
+            let withList = document.getElementById("with-list");
+            let selectTypeSelector = document.getElementById("select-type-selector");
+            let selectList = document.getElementById("select-list");
+            let fromList = document.getElementById("from-list");
+            let whereInput = document.getElementById("where-input");
+            let groupByTypeSelector = document.getElementById("group-by-type-selector");
+            let groupByList = document.getElementById("group-by-list");
+            let havingInput = document.getElementById("having-input");
+            let orderByList = document.getElementById("order-by-list");
+            let limitInput = document.getElementById("limit-input");
+            let offsetInput = document.getElementById("offset-input");
+
+            saveWithChanges(sqlObject, withList);
+            sqlObject.selectType = selectTypeSelector.value;
+            sqlObject.select = [...selectList.childNodes].map(selectRow => {
+                let selectRowChildren = selectRow.childNodes;
+                return {
+                    expression: selectRowChildren[0].value,
+                    alias: selectRowChildren[2].value
+                };
+            });
+            saveDataSourceChanges(sqlObject.from, fromList);
+            sqlObject.where = whereInput.value || null;
+            sqlObject.groupByType = groupByTypeSelector.value;
+            sqlObject.groupBy = [...groupByList.childNodes].map(groupByRow => {
+                let groupByRowChildren = groupByRow.childNodes;
+                return {
+                    expression: groupByRowChildren[0].value
+                };
+            });
+            sqlObject.having = havingInput.value || null;
+            sqlObject.orderBy = [...orderByList.childNodes].map(orderByRow => {
+                let orderByRowChildren = orderByRow.childNodes;
+                return {
+                    expression: orderByRowChildren[0].value,
+                    direction: orderByRowChildren[1].value
+                };
+            });
+            sqlObject.limit = limitInput.value || null;
+            sqlObject.offset = offsetInput.value || null;
+        } else if (sqlObject.type === "multiselect") {
+            let withList = document.getElementById("with-list");
+            let subselectList = document.getElementById("sub-select-list");
+            let orderByList = document.getElementById("order-by-list");
+            let limitInput = document.getElementById("limit-input");
+            let offsetInput = document.getElementById("offset-input");
+
+            saveWithChanges(sqlObject, withList);
+            sqlObject.subselect = [];
+            for (let i = 0; i < subselectList.childNodes.length; i += 2) {
+                let subselectRowChildren = subselectList.childNodes[i].childNodes;
+                let subselectObject = {
+                    data: subselectRowChildren[0].underlyingSqlObject,
+                    combination: i ? subselectList.childNodes[i-1].childNodes[0].value : "UNION ALL"
+                };
+                sqlObject.subselect.push(subselectObject);
+            }
+            sqlObject.orderBy = [...orderByList.childNodes].map(orderByRow => {
+                let orderByRowChildren = orderByRow.childNodes;
+                return {
+                    expression: orderByRowChildren[0].value,
+                    direction: orderByRowChildren[1].value
+                };
+            });
+            sqlObject.limit = limitInput.value || null;
+            sqlObject.offset = offsetInput.value || null;
+        } else if (sqlObject.type === "values") {
+            let valuesTable = document.getElementById("values-table");
+
+            sqlObject.values = [...valuesTable.childNodes].slice(0, -1).map(valuesRow => {
+                return [...valuesRow.childNodes].slice(0, -1).map(x => x.childNodes[0].value);
+            });
+        } else if (sqlObject.type === "insert") {
+            let withList = document.getElementById("with-list");
+            let insertInput = document.getElementById("insert-input");
+            let insertAliasInput = document.getElementById("insert-alias-input");
+            let insertFieldsList = document.getElementById("insert-fields-list");
+            let insertDataContainer = document.getElementById("insert-data-container");
+            let insertDataSelector = document.getElementById("insert-data-selector");
+            let onConflictTarget = document.getElementById("on-conflict-target");
+            let onConflictWhere = document.getElementById("on-conflict-where");
+            let onConflictSelector = document.getElementById("on-conflict-selector");
+            let setList = document.getElementById("set-list");
+            let returningList = document.getElementById("returning-list");
+
+            sqlObject.insert = insertInput.value;
+            sqlObject.insertAlias = insertAliasInput.value;
+            sqlObject.insertFields = [...insertFieldsList.childNodes].map(insertFieldRow => {
+                return insertFieldRow.childNodes[0].value;
+            });
+            sqlObject.insertData = {
+                type: insertDataSelector.value,
+                data: insertDataContainer.innerHTML ? insertDataContainer.childNodes[0].underlyingSqlObject : null
+            };
+            sqlObject.onConflict = {
+                type: onConflictSelector.value,
+                data: null
+            };
+            if (onConflictSelector.value === "DO UPDATE") {
+                sqlObject.onConflict.data = {
+                    target: onConflictTarget.value,
+                    set: [],
+                    where: onConflictWhere.value
+                };
+                for (let i = 0; i < setList.childNodes.length; i++) {
+                    let setBlockChildren = setList.childNodes[i].childNodes;
+                    let setObject = {
+                        fields: []
+                    };
+                    if (setBlockChildren.length === 2) {
+                        setObject.type = "expression";
+                        setObject.data = [];
+                        let rows = setBlockChildren[1].childNodes;
+                        for (let i = 0; i < rows.length; i++) {
+                            setObject.fields.push(rows[i].childNodes[0].value);
+                            setObject.data.push(rows[i].childNodes[1].value);
+                        }
+                    } else {
+                        setObject.type = "select";
+                        setObject.data = setBlockChildren[0].underlyingSqlObject;
+                        let rows = setBlockChildren[2].childNodes;
+                        for (let i = 0; i < rows.length; i++)
+                            setObject.fields.push(rows[i].childNodes[0].value);
+                    }
+                    sqlObject.onConflict.data.set.push(setObject);
+                }
+            }
+            sqlObject.returning = [...returningList.childNodes].map(returningRow => {
+                let returningRowChildren = returningRow.childNodes;
+                return {
+                    expression: returningRowChildren[0].value,
+                    alias: returningRowChildren[2].value
+                };
+            });
+        } else if (sqlObject.type === "update") {
+            let withList = document.getElementById("with-list");
+            let updateInput = document.getElementById("update-input");
+            let updateAliasInput = document.getElementById("update-alias-input");
+            let setList = document.getElementById("set-list");
+            let fromList = document.getElementById("from-list");
+            let whereInput = document.getElementById("where-input");
+            let returningList = document.getElementById("returning-list");
+
+            saveWithChanges(sqlObject, withList);
+            sqlObject.update = updateInput.value;
+            sqlObject.updateAlias = updateAliasInput.value;
+            sqlObject.set = [];
+            for (let i = 0; i < setList.childNodes.length; i++) {
+                let setBlockChildren = setList.childNodes[i].childNodes;
+                let setObject = {
+                    fields: []
+                };
+                if (setBlockChildren.length === 2) {
+                    setObject.type = "expression";
+                    setObject.data = [];
+                    let rows = setBlockChildren[1].childNodes;
+                    for (let i = 0; i < rows.length; i++) {
+                        setObject.fields.push(rows[i].childNodes[0].value);
+                        setObject.data.push(rows[i].childNodes[1].value);
+                    }
+                } else {
+                    setObject.type = "select";
+                    setObject.data = setBlockChildren[0].underlyingSqlObject;
+                    let rows = setBlockChildren[2].childNodes;
+                    for (let i = 0; i < rows.length; i++)
+                        setObject.fields.push(rows[i].childNodes[0].value);
+                }
+                sqlObject.set.push(setObject);
+            }
+            saveDataSourceChanges(sqlObject.from, fromList);
+            sqlObject.where = whereInput.value;
+            sqlObject.returning = [...returningList.childNodes].map(returningRow => {
+                let returningRowChildren = returningRow.childNodes;
+                return {
+                    expression: returningRowChildren[0].value,
+                    alias: returningRowChildren[2].value
+                };
+            });
+        } else if (sqlObject.type === "delete") {
+            let withList = document.getElementById("with-list");
+            let fromInput = document.getElementById("from-input");
+            let fromAliasInput = document.getElementById("from-alias-input");
+            let usingList = document.getElementById("using-list");
+            let whereInput = document.getElementById("where-input");
+            let returningList = document.getElementById("returning-list");
+
+            saveWithChanges(sqlObject, withList);
+            sqlObject.from = fromInput.value;
+            sqlObject.fromAlias = fromAliasInput.value;
+            saveDataSourceChanges(sqlObject.using, usingList);
+            sqlObject.where = whereInput.value;
+            sqlObject.returning = [...returningList.childNodes].map(returningRow => {
+                let returningRowChildren = returningRow.childNodes;
+                return {
+                    expression: returningRowChildren[0].value,
+                    alias: returningRowChildren[2].value
+                };
+            });
+        }
+    }
+
+
+    /*
+     * Save changes in WITH statements.
+     */
+    function saveWithChanges(sqlObject, withList) {
+        sqlObject.with = [...withList.childNodes].map(withRow => {
+            let withRowChildren = withRow.childNodes;
+            return {
+                recursive: withRowChildren[0].childNodes[0].checked,
+                alias: withRowChildren[1].value,
+                sqlObject: withRowChildren[5].underlyingSqlObject
+            };
+        });
+    }
+
+
+    /*
+     * Save changes in FROM/USING statements.
+     */
+    function saveDataSourceChanges(destination, list) {
+        destination.length = 0;
+        for (let i = 0; i < list.childNodes.length; i += 2) {
+            let rowChildren = list.childNodes[i].childNodes;
+            let object = {
+                join: "CROSS JOIN",
+                lateral: false,
+                condition: ""
+            };
+            if (rowChildren[0].nodeName === "INPUT") {
+                object.type = "expression";
+                object.data = rowChildren[0].value;
+                object.alias = rowChildren[2].value;
+            } else {
+                object.type = "select";
+                object.data = rowChildren[0].underlyingSqlObject;
+                object.alias = rowChildren[2].value;
+            }
+            if (i) {
+                let joinRowChildren = list.childNodes[i-1].childNodes;
+                object.join = joinRowChildren[0].value;
+                object.lateral = joinRowChildren[1].childNodes[0].checked;
+                object.condition = joinRowChildren[3].value;
+            }
+            destination.push(object);
+        }
+    }
+
+
+    /*
+     * Fill the SQL viewing modal with newly generated SQL code.
+     */
+    function fillViewSqlModal() {
+        let sqlObject = window.app.queryBuilderStack[window.app.queryBuilderStack.length-1];
+
+        let validationResultBlock = document.getElementById("validation-result-block");
+        validationResultBlock.innerHTML = "";
+
+        let sqlLines = generateSqlLines(sqlObject);
+        let maxLineNumberWidth = (sqlLines.length + "").length;
+
+        let codeContainer = document.createElement("pre");
+        let code = document.createElement("code");
+        for (let i = 0; i < sqlLines.length; i++) {
+            let lineNumberSpan = document.createElement("span");
+            lineNumberSpan.textContent = (i + 1 + "").padStart(maxLineNumberWidth);
+            lineNumberSpan.style.color = "grey";
+
+            let codeLine = `  ${sqlLines[i]}${i < sqlLines.length - 1 ? "\n" : ";"}`;
+
+            code.append(lineNumberSpan, codeLine);
+        }
+        codeContainer.append(code);
+
+        let viewSqlModalBody = document.getElementById("view-sql-modal-body");
+        viewSqlModalBody.innerHTML = "";
+        viewSqlModalBody.append(codeContainer);
+    }
+
+
+    /*
+     * Initialize the SQL viewing modal logic.
+     */
+    function setupViewSqlModalBehavior() {
+        let viewSqlModal = document.getElementById("view-sql-modal");
+        let viewSqlButton = document.getElementById("view-sql-button");
+        let closeModalButton = document.getElementById("close-modal-button");
+        let copyToClipboardButton = document.getElementById("copy-to-clipboard-button");
+        let validateButton = document.getElementById("validate-button");
+
+        viewSqlButton.onclick = () => {
+            if (window.app.queryBuilderStack.length === 0)
+                alert("No query to view");
+            else {
+                saveObjectChanges();
+                fillViewSqlModal();
+                viewSqlModal.style.display = "block";
+            }
+        };
+
+        closeModalButton.onclick = () => {
+            viewSqlModal.style.display = "none";
+        };
+
+        copyToClipboardButton.onclick = () => {
+            let topObject = window.app.queryBuilderStack[window.app.queryBuilderStack.length-1];
+            let queryCode = generateSqlWithSemicolon(topObject);
+            navigator.clipboard.writeText(queryCode).then(() => {}, () => {
+                alert("Could not copy the query code to the clipboard");
+            });
+        };
+
+        validateButton.onclick = () => {
+            let topObject = window.app.queryBuilderStack[window.app.queryBuilderStack.length-1];
+
+            let viewSqlModalBody = document.getElementById("view-sql-modal-body");
+
+            let data = {
+                tablesCode: generateSqlTables(),
+                queryCode: generateSqlWithSemicolon(topObject)
+            };
+
+            let xhr = new XMLHttpRequest();
+            xhr.open("POST", "{{url_for('validate')}}", true);
+            xhr.setRequestHeader("Content-Type", "application/json");
+            xhr.responseType = "json";
+            xhr.onload = () => {
+                if (xhr.status === 200) {
+                    let responseContainer = document.createElement("pre");
+                    responseContainer.style.color = xhr.response.success ? "#28a745" : "#ff0000";
+                    responseContainer.innerHTML = xhr.response.message;
+
+                    let bold = document.createElement("b");
+                    bold.append(responseContainer);
+
+                    let validationResultBlock = document.getElementById("validation-result-block");
+                    validationResultBlock.innerHTML = "";
+                    validationResultBlock.append(bold);
+                } else {
+                    alert(`Got unexpected response status ${xhr.status}`);
+                }
+            };
+            xhr.send(JSON.stringify(data));
+        };
+    }
+
+
+    /*
+     * Generate SQL code for creating tables.
+     */
+    function generateSqlTables() {
+        let tablesCodes = window.app.tables.map(table => {
+            let lines = [];
+            lines.push(`CREATE TABLE ${table.name} (`);
+            for (let i = 0; i < table.fields.length; i++) {
+                let [name, type, dimensions] = table.fields[i];
+                if (i) lines[lines.length-1] += ",";
+                lines.push(`  ${name} ${type}${"[]".repeat(dimensions)}`);
+            }
+            lines.push(");");
+            return lines.join("\n");
+        });
+        return tablesCodes.join("\n");
+    }
+
+
+    /*
+     * Create a button HTML element with upwards-arrow.
+     */
+    function createMoveUpButton(func) {
+        let moveUpButton = document.createElement("button");
+        moveUpButton.textContent = "↑";
+        moveUpButton.style.marginLeft = "5px";
+        moveUpButton.onclick = func;
+
+        return moveUpButton;
+    }
+
+
+    /*
+     * Exchange two elements, moving the source one upwards.
+     */
+    function moveUpDirectNeighbors(list, row) {
+        let index = 0;
+        for (; index < list.childNodes.length; index++)
+            if (list.childNodes[index] === row) break;
+        if (index > 0) list.insertBefore(row, list.childNodes[index-1]);
+    }
+
+
+    /*
+     * Exchange two elements having another element inbetween, moving the source one upwards.
+     */
+    function moveUpNeighborsWithBetweenElement(list, row) {
+        let index = 0;
+        for (; index < list.childNodes.length; index += 2)
+            if (list.childNodes[index] === row) break;
+        if (index > 0) {
+            let betweenElement = list.childNodes[index-1];
+            let previousRow = list.childNodes[index-2];
+            list.insertBefore(previousRow, row);
+            list.insertBefore(row, betweenElement);
+        }
+    }
+
+
+    /*
+     * Create a button HTML element with downwards-arrow.
+     */
+    function createMoveDownButton(func) {
+        let moveDownButton = document.createElement("button");
+        moveDownButton.textContent = "↓";
+        moveDownButton.style.marginLeft = "5px";
+        moveDownButton.onclick = func;
+
+        return moveDownButton;
+    }
+
+
+    /*
+     * Exchange two elements, moving the source one downwards.
+     */
+    function moveDownDirectNeighbors(list, row) {
+        let index = 0;
+        for (; index < list.childNodes.length; index++)
+            if (list.childNodes[index] === row) break;
+        if (index < list.childNodes.length - 1) list.insertBefore(list.childNodes[index+1], row);
+    }
+
+
+    /*
+     * Exchange two elements having another element inbetween, moving the source one upwards.
+     */
+    function moveDownNeighborsWithBetweenElement(list, row) {
+        let index = 0;
+        for (; index < list.childNodes.length; index += 2)
+            if (list.childNodes[index] === row) break;
+        if (index < list.childNodes.length - 1) {
+            let betweenElement = list.childNodes[index+1];
+            let nextRow = list.childNodes[index+2];
+            list.insertBefore(row, nextRow);
+            list.insertBefore(nextRow, betweenElement);
+        }
+    }
+
+
+    /*
+     * Create a button HTML element stylized for deletion of data.
+     */
+    function createDeleteButton(func) {
+        let deleteButton = document.createElement("button");
+        deleteButton.textContent = "X";
+        deleteButton.style.marginLeft = "5px";
+        deleteButton.classList.add("reject-button");
+        deleteButton.onclick = func;
+
+        return deleteButton;
+    }
+
+
+    /*
+     * Add row for a SELECT value to the query builder.
+     */
+    function addSelect(selectList, expression, alias) {
+        let selectRow = document.createElement("div");
+        selectRow.style.marginTop = "5px";
+
+        let expressionInput = document.createElement("input");
+        expressionInput.type = "text";
+        expressionInput.placeholder = "Expression";
+        if (expression) expressionInput.value = expression;
+
+        let asSpan = document.createElement("span");
+        asSpan.textContent = "AS";
+        asSpan.style.marginLeft = "5px";
+
+        let aliasInput = document.createElement("input");
+        aliasInput.type = "text";
+        aliasInput.placeholder = "Alias";
+        aliasInput.style.marginLeft = "5px";
+        if (alias) aliasInput.value = alias;
+
+        let moveUpButton = createMoveUpButton(() => {
+            moveUpDirectNeighbors(selectList, selectRow);
+        });
+
+        let moveDownButton = createMoveDownButton(() => {
+            moveDownDirectNeighbors(selectList, selectRow);
+        });
+
+        let deleteButton = createDeleteButton(() => {
+            selectRow.remove();
+        });
+
+        selectRow.append(expressionInput, asSpan, aliasInput, moveUpButton, moveDownButton, deleteButton);
+        selectList.append(selectRow);
+    }
+
+
+    /*
+     * Add row for a GROUP BY value to the query builder.
+     */
+    function addGroupBy(groupByList, expression) {
+        let groupByRow = document.createElement("div");
+        groupByRow.style.marginTop = "5px";
+
+        let expressionInput = document.createElement("input");
+        expressionInput.type = "text";
+        expressionInput.placeholder = "Expression";
+        if (expression) expressionInput.value = expression;
+
+        let moveUpButton = createMoveUpButton(() => {
+            moveUpDirectNeighbors(groupByList, groupByRow);
+        });
+
+        let moveDownButton = createMoveDownButton(() => {
+            moveDownDirectNeighbors(groupByList, groupByRow);
+        });
+
+        let deleteButton = createDeleteButton(() => {
+            groupByRow.remove();
+        });
+
+        groupByRow.append(expressionInput, moveUpButton, moveDownButton, deleteButton);
+        groupByList.append(groupByRow);
+    }
+
+
+    /*
+     * Add row for an INSERT value to the query builder.
+     */
+    function addInsertField(insertFieldsList, field) {
+        let insertFieldRow = document.createElement("div");
+        insertFieldRow.style.marginTop = "5px";
+
+        let fieldInput = document.createElement("input");
+        fieldInput.type = "text";
+        fieldInput.placeholder = "Field";
+        if (field) fieldInput.value = field;
+
+        let moveUpButton = createMoveUpButton(() => {
+            moveUpDirectNeighbors(insertFieldsList, insertFieldRow);
+        });
+
+        let moveDownButton = createMoveDownButton(() => {
+            moveDownDirectNeighbors(insertFieldsList, insertFieldRow);
+        });
+
+        let deleteButton = createDeleteButton(() => {
+            insertFieldRow.remove();
+        });
+
+        insertFieldRow.append(fieldInput, moveUpButton, moveDownButton, deleteButton);
+        insertFieldsList.append(insertFieldRow);
+    }
+
+
+    /*
+     * Add row for an ORDER BY value to the query builder.
+     */
+    function addOrderBy(orderByList, expression, direction) {
+        let orderByRow = document.createElement("div");
+        orderByRow.style.marginTop = "5px";
+
+        let expressionInput = document.createElement("input");
+        expressionInput.type = "text";
+        expressionInput.placeholder = "Expression";
+        if (expression) expressionInput.value = expression;
+
+        let directionSelector = document.createElement("select");
+        directionSelector.style.marginLeft = "5px";
+        directionSelector.append(...generateDirectionOptions());
+        directionSelector.value = direction;
+
+        let moveUpButton = createMoveUpButton(() => {
+            moveUpDirectNeighbors(orderByList, orderByRow);
+        });
+
+        let moveDownButton = createMoveDownButton(() => {
+            moveDownDirectNeighbors(orderByList, orderByRow);
+        });
+
+        let deleteButton = createDeleteButton(() => {
+            orderByRow.remove();
+        });
+
+        orderByRow.append(expressionInput, directionSelector, moveUpButton, moveDownButton, deleteButton);
+        orderByList.append(orderByRow);
+    }
+
+
+    /*
+     * Generate a div HTML element for a subquery builder.
+     */
+    function generateSqlBlock(sqlObject, style) {
+        let sqlBlock = document.createElement("div");
+        sqlBlock.underlyingSqlObject = sqlObject;
+        sqlBlock.style.border = "1px solid black";
+        for (let k in style) sqlBlock.style[k] = style[k];
+        sqlBlock.style.cursor = "pointer";
+        sqlBlock.onclick = () => {
+            saveObjectChanges();
+            window.app.queryBuilderStack.push(sqlObject);
+            fillQueryBuilderWithTopObject();
+        };
+        let sqlHeader = document.createElement("h3");
+        sqlHeader.innerHTML = capitalize(sqlObject.type);
+        sqlHeader.style.marginTop = "5px";
+        sqlHeader.style.textAlign = "center";
+        let sqlPre = document.createElement("pre");
+        sqlPre.innerHTML = generateSql(sqlObject);
+
+        sqlBlock.append(sqlHeader, sqlPre);
+
+        return sqlBlock;
+    }
+
+
+    /*
+     * Add row for a WITH value to the query builder.
+     */
+    function addWith(withList, sqlObject, recursive, alias) {
+        let withRow = document.createElement("div");
+        withRow.style.marginTop = "5px";
+
+        let recursiveLabel = document.createElement("label");
+        let recursiveCheckbox = document.createElement("input");
+        recursiveCheckbox.type = "checkbox";
+        if (recursive) recursiveCheckbox.checked = true;
+        let recursiveSpan = document.createElement("span");
+        recursiveSpan.textContent = "Recursive";
+
+        let aliasInput = document.createElement("input");
+        aliasInput.type = "text";
+        aliasInput.placeholder = "Name";
+        aliasInput.style.marginLeft = "5px";
+        if (alias) aliasInput.value = alias;
+
+        let moveUpButton = createMoveUpButton(() => {
+            moveUpDirectNeighbors(withList, withRow);
+        });
+
+        let moveDownButton = createMoveDownButton(() => {
+            moveDownDirectNeighbors(withList, withRow);
+        });
+
+        let deleteButton = createDeleteButton(() => {
+            withRow.remove();
+        });
+
+        let sqlBlock = generateSqlBlock(sqlObject, {marginTop: "5px", marginBottom: "20px"});
+
+        recursiveLabel.append(recursiveCheckbox, recursiveSpan);
+        withRow.append(recursiveLabel, aliasInput, moveUpButton, moveDownButton, deleteButton, sqlBlock);
+        withList.append(withRow);
+    }
+
+
+    /*
+     * Add row for a FROM value to the query builder.
+     */
+    function addFrom(fromList, type, data, alias, join, lateral, condition) {
+        if (fromList.innerHTML) {
+            let joinBlock = document.createElement("div");
+            joinBlock.style.marginTop = "5px";
+
+            let joinSelector = document.createElement("select");
+            joinSelector.append(...generateJoinOptions());
+            joinSelector.value = join;
+
+            let lateralLabel = document.createElement("label");
+            lateralLabel.style.marginLeft = "5px";
+            let lateralCheckbox = document.createElement("input");
+            lateralCheckbox.type = "checkbox";
+            if (lateral) lateralCheckbox.checked = true;
+            let lateralSpan = document.createElement("span");
+            lateralSpan.textContent = "Lateral";
+
+            let onSpan = document.createElement("span");
+            onSpan.textContent = "ON";
+            onSpan.style.marginLeft = "5px";
+
+            let conditionInput = document.createElement("input");
+            conditionInput.type = "text";
+            conditionInput.style.marginLeft = "5px";
+            conditionInput.placeholder = "Condition";
+            if (condition) conditionInput.value = condition;
+
+            lateralLabel.append(lateralCheckbox, lateralSpan);
+            joinBlock.append(joinSelector, lateralLabel, onSpan, conditionInput);
+            fromList.append(joinBlock);
+        }
+
+        let fromRow = document.createElement("div");
+        fromRow.style.marginTop = "5px";
+        fromRow.style.marginBottom = "20px";
+
+        if (type === "expression") {
+            let expressionInput = document.createElement("input");
+            expressionInput.type = "text";
+            expressionInput.style.marginRight = "5px";
+            expressionInput.placeholder = "Expression";
+            if (data) expressionInput.value = data;
+
+            fromRow.append(expressionInput);
+        } else if (type === "select") {
+            let sqlBlock = generateSqlBlock(data, {marginBottom: "5px"});
+
+            fromRow.append(sqlBlock);
+        }
+
+        let asSpan = document.createElement("span");
+        asSpan.textContent = "AS";
+
+        let aliasInput = document.createElement("input");
+        aliasInput.type = "text";
+        aliasInput.placeholder = "Alias";
+        aliasInput.style.marginLeft = "5px";
+        if (alias) aliasInput.value = alias;
+
+        let moveUpButton = createMoveUpButton(() => {
+            moveUpNeighborsWithBetweenElement(fromList, fromRow);
+        });
+
+        let moveDownButton = createMoveDownButton(() => {
+            moveDownNeighborsWithBetweenElement(fromList, fromRow);
+        });
+
+        let deleteButton = createDeleteButton(() => {
+            let previousSibling = fromRow.previousSibling;
+            let nextSibling = fromRow.nextSibling;
+            if (!previousSibling) {
+                if (nextSibling) nextSibling.remove();
+            } else previousSibling.remove();
+            fromRow.remove();
+        });
+
+        fromRow.append(asSpan, aliasInput, moveUpButton, moveDownButton, deleteButton);
+        fromList.append(fromRow);
+    }
+
+
+    /*
+     * Add row for a SET expression to the query builder.
+     */
+    function addSetExpression(expressionsList, field, expression) {
+        let expressionRow = document.createElement("div");
+        expressionRow.style.marginTop = "5px";
+
+        let fieldInput = document.createElement("input");
+        fieldInput.type = "text";
+        fieldInput.placeholder = "Field";
+        if (field) fieldInput.value = field;
+
+        let expressionInput = document.createElement("input");
+        expressionInput.type = "text";
+        expressionInput.placeholder = "Expression";
+        expressionInput.style.marginLeft = "5px";
+        if (expression) expressionInput.value = expression;
+
+        let moveUpButton = createMoveUpButton(() => {
+            moveUpDirectNeighbors(expressionsList, expressionRow);
+        });
+
+        let moveDownButton = createMoveDownButton(() => {
+            moveDownDirectNeighbors(expressionsList, expressionRow);
+        });
+
+        let deleteButton = createDeleteButton(() => {
+            expressionRow.remove();
+        });
+
+        expressionRow.append(fieldInput, expressionInput, moveUpButton, moveDownButton, deleteButton);
+        expressionsList.append(expressionRow);
+    }
+
+
+    /*
+     * Add row for a SET field to the query builder.
+     */
+    function addSetField(fieldsList, field) {
+        let fieldRow = document.createElement("div");
+        fieldRow.style.marginTop = "5px";
+
+        let fieldInput = document.createElement("input");
+        fieldInput.type = "text";
+        fieldInput.placeholder = "Field";
+        if (field) fieldInput.value = field;
+
+        let moveUpButton = createMoveUpButton(() => {
+            moveUpDirectNeighbors(fieldsList, fieldRow);
+        });
+
+        let moveDownButton = createMoveDownButton(() => {
+            moveDownDirectNeighbors(fieldsList, fieldRow);
+        });
+
+        let deleteButton = createDeleteButton(() => {
+            fieldRow.remove();
+        });
+
+        fieldRow.append(fieldInput, moveUpButton, moveDownButton, deleteButton);
+        fieldsList.append(fieldRow);
+    }
+
+
+    /*
+     * Add row for a SET block to the query builder.
+     */
+    function addSet(setList, type, fields, data) {
+        let setBlock = document.createElement("div");
+
+        if (type === "expression") {
+            let expressionsHeader = document.createElement("h3");
+            expressionsHeader.innerHTML = "Expressions";
+            expressionsHeader.style.display = "inline-block";
+            expressionsHeader.style.marginTop = "0";
+            expressionsHeader.style.marginBottom = "0";
+
+            let expressionsList = document.createElement("div");
+            expressionsList.style.marginBottom = "10px";
+
+            let buttonsContainer = document.createElement("div");
+            buttonsContainer.style.marginTop = "15px";
+            buttonsContainer.style.marginBottom = "5px";
+
+            let addButton = document.createElement("button");
+            addButton.textContent = "+ field";
+            addButton.classList.add("confirm-button");
+            addButton.style.marginLeft = "5px";
+            addButton.onclick = () => {
+                addSetExpression(expressionsList, "", "");
+            };
+            for (let i = 0; i < fields.length; i++) addSetExpression(expressionsList, fields[i], data[i]);
+
+            let deleteButton = createDeleteButton(() => {
+                setBlock.remove();
+            });
+            
+            buttonsContainer.append(expressionsHeader, addButton, deleteButton);
+            setBlock.append(buttonsContainer, expressionsList);
+        } else if (type === "select") {
+            let sqlBlock = generateSqlBlock(data, {marginTop: "15px", marginBottom: "5px"});
+
+            let fieldsList = document.createElement("div");
+            fieldsList.style.marginBottom = "20px";
+
+            let buttonsContainer = document.createElement("div");
+            buttonsContainer.style.marginBottom = "5px";
+
+            let addButton = document.createElement("button");
+            addButton.textContent = "+ field";
+            addButton.classList.add("confirm-button");
+            addButton.onclick = () => {
+                addSetField(fieldsList, "");
+            };
+            for (let i = 0; i < fields.length; i++) addSetField(fieldsList, fields[i]);
+
+            let deleteButton = createDeleteButton(() => {
+                setBlock.remove();
+            });
+
+            buttonsContainer.append(addButton, deleteButton);
+            setBlock.append(sqlBlock, buttonsContainer, fieldsList);
+        }
+
+        setList.append(setBlock);
+    }
+
+
+    /*
+     * Fill the query builder UI with the currently edited object.
+     */
+    function fillQueryBuilderWithTopObject() {
+        let topObject = window.app.queryBuilderStack[window.app.queryBuilderStack.length-1];
+        if (topObject.type === "select") fillQueryBuilderWithSelect(topObject);
+        else if (topObject.type === "multiselect") fillQueryBuilderWithMultiselect(topObject);
+        else if (topObject.type === "values") fillQueryBuilderWithValues(topObject);
+        else if (topObject.type === "insert") fillQueryBuilderWithInsert(topObject);
+        else if (topObject.type === "update") fillQueryBuilderWithUpdate(topObject);
+        else if (topObject.type === "delete") fillQueryBuilderWithDelete(topObject);
+    }
+
+
+    /*
+     * Fill the query builder UI with a SELECT form.
+     */
+    function fillQueryBuilderWithSelect(selectObject) {
+        let queryBuilderContainer = document.getElementById("query-builder-container");
+
+        let withHeader = document.createElement("h2");
+        withHeader.innerHTML = "With";
+        withHeader.style.display = "inline-block";
+        withHeader.style.marginBottom = "5px";
+        let withList = document.createElement("div");
+        withList.id = "with-list";
+        let [addWithSelectButton, addWithMultiselectButton, addWithValuesButton, addWithInsertButton, addWithUpdateButton, addWithDeleteButton] = generateAddWithButtons(withList);
+        for (let with_ of selectObject.with) addWith(withList, with_.sqlObject, with_.recursive, with_.alias);
+
+        let selectHeader = document.createElement("h2");
+        selectHeader.innerHTML = "Select";
+        selectHeader.style.display = "inline-block";
+        selectHeader.style.marginBottom = "5px";
+        let selectTypeSelector = document.createElement("select");
+        selectTypeSelector.style.marginLeft = "5px";
+        selectTypeSelector.append(...generateSelectTypeOptions());
+        selectTypeSelector.value = selectObject.selectType;
+        selectTypeSelector.id = "select-type-selector";
+        let selectList = document.createElement("div");
+        selectList.id = "select-list";
+        let addSelectButton = document.createElement("button");
+        addSelectButton.textContent = "+";
+        addSelectButton.style.marginLeft = "5px";
+        addSelectButton.classList.add("confirm-button");
+        addSelectButton.onclick = () => {
+            addSelect(selectList, "", "");
+        };
+        for (let select of selectObject.select) addSelect(selectList, select.expression, select.alias);
+
+        let fromHeader = document.createElement("h2");
+        fromHeader.innerHTML = "From";
+        fromHeader.style.display = "inline-block";
+        fromHeader.style.marginBottom = "5px";
+        let fromList = document.createElement("div");
+        fromList.id = "from-list";
+        let [addFromExpressionButton, addFromSelectButton, addFromMultiselectButton, addFromValuesButton] = generateFromButtons(fromList);
+        for (let from of selectObject.from) addFrom(fromList, from.type, from.data, from.alias, from.join, from.lateral, from.condition);
+
+        let whereHeader = document.createElement("h2");
+        whereHeader.innerHTML = "Where";
+        whereHeader.style.marginBottom = "0";
+        let whereInput = document.createElement("input");
+        whereInput.id = "where-input";
+        whereInput.type = "text";
+        whereInput.placeholder = "Condition";
+        if (selectObject.where) whereInput.value = selectObject.where;
+
+        let groupByHeader = document.createElement("h2");
+        groupByHeader.innerHTML = "Group by";
+        groupByHeader.style.display = "inline-block";
+        groupByHeader.style.marginBottom = "5px";
+        let groupByTypeSelector = document.createElement("select");
+        groupByTypeSelector.style.marginLeft = "5px";
+        groupByTypeSelector.append(...generateGroupByTypeOptions());
+        groupByTypeSelector.value = selectObject.groupByType;
+        groupByTypeSelector.id = "group-by-type-selector";
+        let groupByList = document.createElement("div");
+        groupByList.id = "group-by-list";
+        let addGroupByButton = document.createElement("button");
+        addGroupByButton.textContent = "+";
+        addGroupByButton.style.marginLeft = "5px";
+        addGroupByButton.classList.add("confirm-button");
+        addGroupByButton.onclick = () => {
+            addGroupBy(groupByList, "");
+        };
+        for (let groupBy of selectObject.groupBy) addGroupBy(groupByList, groupBy.expression);
+
+        let havingHeader = document.createElement("h2");
+        havingHeader.innerHTML = "Having";
+        havingHeader.style.marginBottom = "0";
+        let havingInput = document.createElement("input");
+        havingInput.id = "having-input";
+        havingInput.type = "text";
+        havingInput.placeholder = "Condition";
+        if (selectObject.having) havingInput.value = selectObject.having;
+
+        let orderByHeader = document.createElement("h2");
+        orderByHeader.innerHTML = "Order by";
+        orderByHeader.style.display = "inline-block";
+        orderByHeader.style.marginBottom = "5px";
+        let orderByList = document.createElement("div");
+        orderByList.id = "order-by-list";
+        let addOrderByButton = document.createElement("button");
+        addOrderByButton.textContent = "+";
+        addOrderByButton.style.marginLeft = "5px";
+        addOrderByButton.classList.add("confirm-button");
+        addOrderByButton.onclick = () => {
+            addOrderBy(orderByList, "", "ASC");
+        };
+        for (let orderBy of selectObject.orderBy) addOrderBy(orderByList, orderBy.expression, orderBy.direction);
+
+        let limitHeader = document.createElement("h2");
+        limitHeader.innerHTML = "Limit";
+        limitHeader.style.marginBottom = "0";
+        let limitInput = document.createElement("input");
+        limitInput.id = "limit-input";
+        limitInput.type = "number";
+        limitInput.placeholder = "Limit";
+        limitInput.min = 0;
+        if (selectObject.limit) limitInput.value = selectObject.limit;
+
+        let offsetHeader = document.createElement("h2");
+        offsetHeader.innerHTML = "Offset";
+        offsetHeader.style.marginBottom = "0";
+        let offsetInput = document.createElement("input");
+        offsetInput.id = "offset-input";
+        offsetInput.type = "number";
+        offsetInput.placeholder = "Offset";
+        offsetInput.min = 0;
+        if (selectObject.offset) offsetInput.value = selectObject.offset;
+
+        queryBuilderContainer.innerHTML = "";
+        queryBuilderContainer.append(
+            withHeader, addWithSelectButton, addWithMultiselectButton, addWithValuesButton, addWithInsertButton, addWithUpdateButton, addWithDeleteButton, withList, document.createElement("div"),
+            selectHeader, selectTypeSelector, addSelectButton, selectList, document.createElement("div"),
+            fromHeader, addFromExpressionButton, addFromSelectButton, addFromMultiselectButton, addFromValuesButton, fromList, document.createElement("div"),
+            whereHeader, whereInput, document.createElement("div"),
+            groupByHeader, groupByTypeSelector, addGroupByButton, groupByList, document.createElement("div"),
+            havingHeader, havingInput, document.createElement("div"),
+            orderByHeader, addOrderByButton, orderByList, document.createElement("div"),
+            limitHeader, limitInput, document.createElement("div"),
+            offsetHeader, offsetInput
+        );
+    }
+
+
+    /*
+     * Add subselect to the query builder.
+     */
+    function addSubselect(subselectList, data, combination) {
+        if (subselectList.innerHTML) {
+            let combinationBlock = document.createElement("div");
+            combinationBlock.style.marginTop = "5px";
+
+            let combinationSelector = document.createElement("select");
+            combinationSelector.append(...generateCombinationOptions());
+            combinationSelector.value = combination;
+
+            combinationBlock.append(combinationSelector);
+            subselectList.append(combinationBlock);
+        }
+
+        let subselectRow = document.createElement("div");
+        subselectRow.style.marginTop = "5px";
+        subselectRow.style.marginBottom = "20px";
+
+        let moveUpButton = createMoveUpButton(() => {
+            moveUpNeighborsWithBetweenElement(subselectList, subselectRow);
+        });
+
+        let moveDownButton = createMoveDownButton(() => {
+            moveDownNeighborsWithBetweenElement(subselectList, subselectRow);
+        });
+
+        let deleteButton = createDeleteButton(() => {
+            let previousSibling = subselectRow.previousSibling;
+            let nextSibling = subselectRow.nextSibling;
+            if (!previousSibling) {
+                if (nextSibling) nextSibling.remove();
+            } else previousSibling.remove();
+            subselectRow.remove();
+        });
+
+        let sqlBlock = generateSqlBlock(data, {marginBottom: "5px"});
+
+        subselectRow.append(sqlBlock, moveUpButton, moveDownButton, deleteButton);
+        subselectList.append(subselectRow);
+    }
+
+
+    /*
+     * Fill the query builder UI with a MULTISELECT (multiple SELECTs with UNION/INTERSECT/EXCEPT inbetween) form.
+     */
+    function fillQueryBuilderWithMultiselect(multiselectObject) {
+        let queryBuilderContainer = document.getElementById("query-builder-container");
+
+        let withHeader = document.createElement("h2");
+        withHeader.innerHTML = "With";
+        withHeader.style.display = "inline-block";
+        withHeader.style.marginBottom = "5px";
+        let withList = document.createElement("div");
+        withList.id = "with-list";
+        let [addWithSelectButton, addWithMultiselectButton, addWithValuesButton, addWithInsertButton, addWithUpdateButton, addWithDeleteButton] = generateAddWithButtons(withList);
+        for (let with_ of multiselectObject.with) addWith(withList, with_.sqlObject, with_.recursive, with_.alias);
+
+        let subselectHeader = document.createElement("h2");
+        subselectHeader.innerHTML = "Subselect";
+        subselectHeader.style.display = "inline-block";
+        subselectHeader.style.marginBottom = "5px";
+        let subselectList = document.createElement("div");
+        subselectList.id = "sub-select-list";
+        let addSubselectSelectButton = document.createElement("button");
+        addSubselectSelectButton.textContent = "+ select";
+        addSubselectSelectButton.style.marginLeft = "5px";
+        addSubselectSelectButton.classList.add("confirm-button");
+        addSubselectSelectButton.onclick = () => {
+            let emptySelectObject = createEmptySelectObject();
+            addSubselect(subselectList, emptySelectObject, "UNION ALL");
+        };
+        let addSubselectMultiselectButton = document.createElement("button");
+        addSubselectMultiselectButton.textContent = "+ multiselect";
+        addSubselectMultiselectButton.style.marginLeft = "5px";
+        addSubselectMultiselectButton.classList.add("confirm-button");
+        addSubselectMultiselectButton.onclick = () => {
+            let emptyMultiselectObject = createEmptyMultiselectObject();
+            addSubselect(subselectList, emptyMultiselectObject, "UNION ALL");
+        };
+        let addSubselectValuesButton = document.createElement("button");
+        addSubselectValuesButton.textContent = "+ values";
+        addSubselectValuesButton.style.marginLeft = "5px";
+        addSubselectValuesButton.classList.add("confirm-button");
+        addSubselectValuesButton.onclick = () => {
+            let emptyValuesObject = createEmptyValuesObject();
+            addSubselect(subselectList, emptyValuesObject, "UNION ALL");
+        };
+        for (let subselect of multiselectObject.subselect) addSubselect(subselectList, subselect.data, subselect.combination);
+
+        let orderByHeader = document.createElement("h2");
+        orderByHeader.innerHTML = "Order by";
+        orderByHeader.style.display = "inline-block";
+        orderByHeader.style.marginBottom = "5px";
+        let orderByList = document.createElement("div");
+        orderByList.id = "order-by-list";
+        let addOrderByButton = document.createElement("button");
+        addOrderByButton.textContent = "+";
+        addOrderByButton.style.marginLeft = "5px";
+        addOrderByButton.classList.add("confirm-button");
+        addOrderByButton.onclick = () => {
+            addOrderBy(orderByList, "", "ASC");
+        };
+        for (let orderBy of multiselectObject.orderBy) addOrderBy(orderByList, orderBy.expression, orderBy.direction);
+
+        let limitHeader = document.createElement("h2");
+        limitHeader.innerHTML = "Limit";
+        limitHeader.style.marginBottom = "0";
+        let limitInput = document.createElement("input");
+        limitInput.id = "limit-input";
+        limitInput.type = "number";
+        limitInput.placeholder = "Limit";
+        limitInput.min = 0;
+        if (multiselectObject.limit) limitInput.value = multiselectObject.limit;
+
+        let offsetHeader = document.createElement("h2");
+        offsetHeader.innerHTML = "Offset";
+        offsetHeader.style.marginBottom = "0";
+        let offsetInput = document.createElement("input");
+        offsetInput.id = "offset-input";
+        offsetInput.type = "number";
+        offsetInput.placeholder = "Offset";
+        offsetInput.min = 0;
+        if (multiselectObject.offset) offsetInput.value = multiselectObject.offset;
+
+        queryBuilderContainer.innerHTML = "";
+        queryBuilderContainer.append(
+            withHeader, addWithSelectButton, addWithMultiselectButton, addWithValuesButton, addWithInsertButton, addWithUpdateButton, addWithDeleteButton, withList, document.createElement("div"),
+            subselectHeader, addSubselectSelectButton, addSubselectMultiselectButton, addSubselectValuesButton, subselectList, document.createElement("div"),
+            orderByHeader, addOrderByButton, orderByList, document.createElement("div"),
+            limitHeader, limitInput, document.createElement("div"),
+            offsetHeader, offsetInput
+        );
+    }
+
+
+    /*
+     * Add column to the VALUES form.
+     */
+    function addColumn(valuesTable, values) {
+        valuesTable.columnCount++;
+
+        let rows = valuesTable.childNodes;
+
+        for (let i = 0; i < valuesTable.rowCount; i++) {
+            let td = document.createElement("td");
+
+            let expressionInput = document.createElement("input");
+            expressionInput.type = "text";
+            expressionInput.placeholder = "Expression";
+            if (i < values.length) expressionInput.value = values[i];
+
+            td.append(expressionInput);
+            rows[i].insertBefore(td, rows[i].childNodes[rows[i].childNodes.length-1]);
+        }
+
+        let td = document.createElement("td");
+
+        let moveLeftButton = createMoveUpButton(() => {
+            let i = 0;
+            for (; i < rows[rows.length-1].childNodes.length; i++)
+                if (rows[rows.length-1].childNodes[i].childNodes[0] === moveLeftButton) break;
+            if (i) {
+                for (let j = 0; j < rows.length; j++)
+                    rows[j].insertBefore(rows[j].childNodes[i], rows[j].childNodes[i-1]);
+            }
+        });
+        moveLeftButton.innerHTML = "←";
+
+        let moveRightButton = createMoveDownButton(() => {
+            let i = 0;
+            for (; i < rows[rows.length-1].childNodes.length; i++)
+                if (rows[rows.length-1].childNodes[i].childNodes[1] === moveRightButton) break;
+            if (i < rows[rows.length-1].childNodes.length - 2) {
+                for (let j = 0; j < rows.length; j++)
+                    rows[j].insertBefore(rows[j].childNodes[i+1], rows[j].childNodes[i]);
+            }
+        });
+        moveRightButton.innerHTML = "→";
+
+        let deleteButton = createDeleteButton(() => {
+            let i = 0;
+            for (; i < rows[rows.length-1].childNodes.length; i++)
+                if (rows[rows.length-1].childNodes[i].childNodes[2] === deleteButton) break;
+            for (let j = 0; j < rows.length; j++)
+                rows[j].childNodes[i].remove();
+            valuesTable.columnCount--;
+        });
+
+        td.append(moveLeftButton, moveRightButton, deleteButton);
+        rows[rows.length-1].insertBefore(td, rows[rows.length-1].childNodes[rows[rows.length-1].childNodes.length-1]);
+    }
+
+
+    /*
+     * Add row to the VALUES form.
+     */
+    function addRow(valuesTable, values) {
+        valuesTable.rowCount++;
+
+        let tr = document.createElement("tr");
+
+        for (let i = 0; i < valuesTable.columnCount; i++) {
+            let td = document.createElement("td");
+
+            let expressionInput = document.createElement("input");
+            expressionInput.type = "text";
+            expressionInput.placeholder = "Expression";
+            if (i < values.length) expressionInput.value = values[i];
+
+            td.append(expressionInput);
+            tr.append(td);
+        }
+
+        let td = document.createElement("td");
+
+        let moveUpButton = createMoveUpButton(() => {
+            moveUpDirectNeighbors(valuesTable, tr);
+        });
+
+        let moveDownButton = createMoveDownButton(() => {
+            let i = 0;
+            for (; i < valuesTable.childNodes.length; i++)
+                if (valuesTable.childNodes[i] === tr) break;
+            if (i < valuesTable.childNodes.length - 2) valuesTable.insertBefore(valuesTable.childNodes[i+1], tr);
+        });
+
+        let deleteButton = createDeleteButton(() => {
+            tr.remove();
+            valuesTable.rowCount--;
+        });
+
+        td.append(moveUpButton, moveDownButton, deleteButton);
+        tr.append(td);
+        valuesTable.insertBefore(tr, valuesTable.childNodes[valuesTable.childNodes.length-1]);
+    }
+
+
+    /*
+     * Fill the query builder UI with a VALUES form.
+     */
+    function fillQueryBuilderWithValues(valuesObject) {
+        let queryBuilderContainer = document.getElementById("query-builder-container");
+
+        let valuesHeader = document.createElement("h2");
+        valuesHeader.innerHTML = "Values";
+        valuesHeader.style.display = "inline-block";
+        valuesHeader.style.marginBottom = "5px";
+
+        let valuesTable = document.createElement("table");
+        valuesTable.classList.add("borderless-table");
+        valuesTable.id = "values-table";
+        valuesTable.columnCount = 0;
+        valuesTable.rowCount = 0;
+
+        let valuesTableLastRow = document.createElement("tr");
+        let valuesTableEmptyCorner = document.createElement("td");
+
+        valuesTableLastRow.append(valuesTableEmptyCorner);
+        valuesTable.append(valuesTableLastRow);
+
+        let addColumnButton = document.createElement("button");
+        addColumnButton.textContent = "+ column";
+        addColumnButton.style.marginLeft = "5px";
+        addColumnButton.classList.add("confirm-button");
+        addColumnButton.onclick = () => {
+            addColumn(valuesTable, []);
+        };
+
+        let addRowButton = document.createElement("button");
+        addRowButton.textContent = "+ row";
+        addRowButton.style.marginLeft = "5px";
+        addRowButton.classList.add("confirm-button");
+        addRowButton.onclick = () => {
+            addRow(valuesTable, []);
+        };
+
+        for (let i = 0; valuesObject.values.length && i < valuesObject.values[0].length; i++) addColumn(valuesTable, []);
+        for (let values of valuesObject.values) addRow(valuesTable, values);
+
+        queryBuilderContainer.innerHTML = "";
+        queryBuilderContainer.append(
+            valuesHeader, addColumnButton, addRowButton, valuesTable
+        );
+    }
+
+
+    /*
+     * Generate an SQL block for the inserted data SQL object in the INSERT form.
+     */
+    function setInsertData(insertDataContainer, sqlObject) {
+        let sqlBlock = generateSqlBlock(sqlObject, {marginTop: "5px", marginBottom: "5px"});
+
+        insertDataContainer.innerHTML = "";
+        insertDataContainer.append(sqlBlock);
+    }
+
+
+    /*
+     * Fill the query builder UI with an INSERT form.
+     */
+    function fillQueryBuilderWithInsert(insertObject) {
+        let queryBuilderContainer = document.getElementById("query-builder-container");
+
+        let withHeader = document.createElement("h2");
+        withHeader.innerHTML = "With";
+        withHeader.style.display = "inline-block";
+        withHeader.style.marginBottom = "5px";
+        let withList = document.createElement("div");
+        withList.id = "with-list";
+        let [addWithSelectButton, addWithMultiselectButton, addWithValuesButton, addWithInsertButton, addWithUpdateButton, addWithDeleteButton] = generateAddWithButtons(withList);
+        for (let with_ of insertObject.with) addWith(withList, with_.sqlObject, with_.recursive, with_.alias);
+
+        let insertHeader = document.createElement("h2");
+        insertHeader.innerHTML = "Insert into";
+        insertHeader.style.marginBottom = "5px";
+        let insertInput = document.createElement("input");
+        insertInput.id = "insert-input";
+        insertInput.type = "text";
+        insertInput.placeholder = "Table";
+        if (insertObject.insert) insertInput.value = insertObject.insert;
+        let asSpan = document.createElement("span");
+        asSpan.textContent = "AS";
+        asSpan.style.marginLeft = "5px";
+        let insertAliasInput = document.createElement("input");
+        insertAliasInput.id = "insert-alias-input";
+        insertAliasInput.type = "text";
+        insertAliasInput.placeholder = "Alias";
+        insertAliasInput.style.marginLeft = "5px";
+        if (insertObject.insertAlias) insertAliasInput.value = insertObject.insertAlias;
+        let insertFieldsList = document.createElement("div");
+        insertFieldsList.id = "insert-fields-list";
+        let addInsertFieldButton = document.createElement("button");
+        addInsertFieldButton.textContent = "+";
+        addInsertFieldButton.style.marginLeft = "5px";
+        addInsertFieldButton.classList.add("confirm-button");
+        addInsertFieldButton.onclick = () => {
+            addInsertField(insertFieldsList, "");
+        };
+        for (let insertField of insertObject.insertFields) addInsertField(insertFieldsList, insertField);
+
+        let insertDataHeader = document.createElement("h2");
+        insertDataHeader.innerHTML = "Data";
+        insertDataHeader.style.marginBottom = "5px";
+        insertDataHeader.style.display = "inline-block";
+        let insertDataContainer = document.createElement("div");
+        insertDataContainer.id = "insert-data-container";
+        let insertDataSelector = document.createElement("select");
+        insertDataSelector.append(...generateInsertDataOptions());
+        insertDataSelector.id = "insert-data-selector";
+        insertDataSelector.value = insertObject.insertData.type;
+        insertDataSelector.style.marginLeft = "5px";
+        insertDataSelector.onchange = () => {
+            if (insertDataSelector.value === "DEFAULT VALUES") {
+                insertDataContainer.innerHTML = "";
+            } else {
+                let emptyObject = {
+                    "VALUES": createEmptyValuesObject,
+                    "SELECT": createEmptySelectObject,
+                    "MULTISELECT": createEmptyMultiselectObject
+                }[insertDataSelector.value]();
+                setInsertData(insertDataContainer, emptyObject);
+            }
+        };
+        if (insertObject.insertData.type !== "DEFAULT VALUES") setInsertData(insertDataContainer, insertObject.insertData.data);
+
+        let onConflictHeader = document.createElement("h2");
+        onConflictHeader.innerHTML = "On conflict";
+        onConflictHeader.style.marginBottom = "5px";
+        onConflictHeader.style.display = "inline-block";
+        let onConflictContainer = document.createElement("div");
+        onConflictContainer.style.display = "none";
+        let setList = document.createElement("div");
+        setList.id = "set-list";
+        let buttonsList = document.createElement("div");
+        buttonsList.style.display = "none";
+        buttonsList.style.marginTop = "5px";
+        let [addSetExpressionsButton, addSetSelectButton, addSetMultiselectButton, addSetValuesButton] = generateSetButtons(setList);
+        buttonsList.append(addSetExpressionsButton, addSetSelectButton, addSetMultiselectButton, addSetValuesButton);
+        let onConflictTarget = document.createElement("input");
+        onConflictTarget.type = "text";
+        onConflictTarget.placeholder = "Target";
+        onConflictTarget.id = "on-conflict-target";
+        let onConflictWhere = document.createElement("input");
+        onConflictWhere.type = "text";
+        onConflictWhere.placeholder = "Condition";
+        onConflictWhere.id = "on-conflict-where";
+        onConflictWhere.style.marginLeft = "5px";
+        onConflictContainer.append(onConflictTarget, onConflictWhere, setList);
+        let onConflictSelector = document.createElement("select");
+        onConflictSelector.append(...generateOnConflictOptions());
+        onConflictSelector.id = "on-conflict-selector";
+        onConflictSelector.value = insertObject.onConflict.type;
+        onConflictSelector.style.marginLeft = "5px";
+        onConflictSelector.onchange = () => {
+            onConflictTarget.value = "";
+            onConflictWhere.value = "";
+            setList.innerHTML = "";
+            if (onConflictSelector.value === "DO UPDATE") {
+                buttonsList.style.display = "inline-block";
+                onConflictContainer.style.display = "block";
+            } else {
+                buttonsList.style.display = "none";
+                onConflictContainer.style.display = "none";
+            }
+        };
+        if (insertObject.onConflict.type === "DO UPDATE") {
+            buttonsList.style.display = "inline-block";
+            onConflictContainer.style.display = "block";
+            onConflictTarget.value = insertObject.onConflict.data.target;
+            onConflictWhere.value = insertObject.onConflict.data.where;
+            for (let set of insertObject.onConflict.data.set) addSet(setList, set.type, set.fields, set.data);
+        }
+
+        let returningHeader = document.createElement("h2");
+        returningHeader.innerHTML = "Returning";
+        returningHeader.style.display = "inline-block";
+        returningHeader.style.marginBottom = "5px";
+        let returningList = document.createElement("div");
+        returningList.id = "returning-list";
+        let addReturningButton = document.createElement("button");
+        addReturningButton.textContent = "+";
+        addReturningButton.style.marginLeft = "5px";
+        addReturningButton.classList.add("confirm-button");
+        addReturningButton.onclick = () => {
+            addSelect(returningList, "", "");
+        };
+        for (let returning of insertObject.returning) addSelect(returningList, returning.expression, returning.alias);
+
+        queryBuilderContainer.innerHTML = "";
+        queryBuilderContainer.append(
+            withHeader, addWithSelectButton, addWithMultiselectButton, addWithValuesButton, addWithInsertButton, addWithUpdateButton, addWithDeleteButton, withList, document.createElement("div"),
+            insertHeader, insertInput, asSpan, insertAliasInput, addInsertFieldButton, insertFieldsList, document.createElement("div"),
+            insertDataHeader, insertDataSelector, insertDataContainer, document.createElement("div"),
+            onConflictHeader, onConflictSelector, buttonsList, onConflictContainer, document.createElement("div"),
+            returningHeader, addReturningButton, returningList
+        );
+    }
+
+
+    /*
+     * Generate a list of button HTML elements for existing SET options.
+     */
+    function generateSetButtons(setList) {
+        return [
+            ["+ expressions", "expression", createEmptyExpressions],
+            ["+ select",      "select",     createEmptySelectObject],
+            ["+ multiselect", "select",     createEmptyMultiselectObject],
+            ["+ values",      "select",     createEmptyValuesObject]
+        ].map(([text, type, func]) => {
+            let addButton = document.createElement("button");
+            addButton.textContent = text;
+            addButton.style.marginLeft = "5px";
+            addButton.classList.add("confirm-button");
+            addButton.onclick = () => addSet(setList, type, [], func());
+            return addButton;
+        });
+    }
+
+
+    /*
+     * Fill the query builder UI with an UPDATE form.
+     */
+    function fillQueryBuilderWithUpdate(updateObject) {
+        let queryBuilderContainer = document.getElementById("query-builder-container");
+
+        let withHeader = document.createElement("h2");
+        withHeader.innerHTML = "With";
+        withHeader.style.display = "inline-block";
+        withHeader.style.marginBottom = "5px";
+        let withList = document.createElement("div");
+        withList.id = "with-list";
+        let [addWithSelectButton, addWithMultiselectButton, addWithValuesButton, addWithInsertButton, addWithUpdateButton, addWithDeleteButton] = generateAddWithButtons(withList);
+        for (let with_ of updateObject.with) addWith(withList, with_.sqlObject, with_.recursive, with_.alias);
+
+        let updateHeader = document.createElement("h2");
+        updateHeader.innerHTML = "Update";
+        updateHeader.style.marginBottom = "0";
+        let updateInput = document.createElement("input");
+        updateInput.id = "update-input";
+        updateInput.type = "text";
+        updateInput.placeholder = "Table";
+        if (updateObject.update) updateInput.value = updateObject.update;
+        let asSpan = document.createElement("span");
+        asSpan.textContent = "AS";
+        asSpan.style.marginLeft = "5px";
+        let updateAliasInput = document.createElement("input");
+        updateAliasInput.id = "update-alias-input";
+        updateAliasInput.type = "text";
+        updateAliasInput.placeholder = "Alias";
+        updateAliasInput.style.marginLeft = "5px";
+        if (updateObject.updateAlias) updateAliasInput.value = updateObject.updateAlias;
+
+        let setHeader = document.createElement("h2");
+        setHeader.innerHTML = "Set";
+        setHeader.style.display = "inline-block";
+        setHeader.style.marginBottom = "5px";
+        let setList = document.createElement("div");
+        setList.id = "set-list";
+        let [addSetExpressionsButton, addSetSelectButton, addSetMultiselectButton, addSetValuesButton] = generateSetButtons(setList);
+        for (let set of updateObject.set) addSet(setList, set.type, set.fields, set.data);
+
+        let fromHeader = document.createElement("h2");
+        fromHeader.innerHTML = "From";
+        fromHeader.style.display = "inline-block";
+        fromHeader.style.marginBottom = "5px";
+        let fromList = document.createElement("div");
+        fromList.id = "from-list";
+        let [addFromExpressionButton, addFromSelectButton, addFromMultiselectButton, addFromValuesButton] = generateFromButtons(fromList);
+        for (let from of updateObject.from) addFrom(fromList, from.type, from.data, from.alias, from.join, from.lateral, from.condition);
+
+        let whereHeader = document.createElement("h2");
+        whereHeader.innerHTML = "Where";
+        whereHeader.style.marginBottom = "0";
+        let whereInput = document.createElement("input");
+        whereInput.id = "where-input";
+        whereInput.type = "text";
+        whereInput.placeholder = "Condition";
+        if (updateObject.where) whereInput.value = updateObject.where;
+
+        let returningHeader = document.createElement("h2");
+        returningHeader.innerHTML = "Returning";
+        returningHeader.style.display = "inline-block";
+        returningHeader.style.marginBottom = "5px";
+        let returningList = document.createElement("div");
+        returningList.id = "returning-list";
+        let addReturningButton = document.createElement("button");
+        addReturningButton.textContent = "+";
+        addReturningButton.style.marginLeft = "5px";
+        addReturningButton.classList.add("confirm-button");
+        addReturningButton.onclick = () => {
+            addSelect(returningList, "", "");
+        };
+        for (let returning of updateObject.returning) addSelect(returningList, returning.expression, returning.alias);
+
+        queryBuilderContainer.innerHTML = "";
+        queryBuilderContainer.append(
+            withHeader, addWithSelectButton, addWithMultiselectButton, addWithValuesButton, addWithInsertButton, addWithUpdateButton, addWithDeleteButton, withList, document.createElement("div"),
+            updateHeader, updateInput, asSpan, updateAliasInput, document.createElement("div"),
+            setHeader, addSetExpressionsButton, addSetSelectButton, addSetMultiselectButton, addSetValuesButton, setList, document.createElement("div"),
+            fromHeader, addFromExpressionButton, addFromSelectButton, addFromMultiselectButton, addFromValuesButton, fromList, document.createElement("div"),
+            whereHeader, whereInput, document.createElement("div"),
+            returningHeader, addReturningButton, returningList
+        );
+    }
+
+
+    /*
+     * Fill the query builder UI with a DELETE form.
+     */
+    function fillQueryBuilderWithDelete(deleteObject) {
+        let queryBuilderContainer = document.getElementById("query-builder-container");
+
+        let withHeader = document.createElement("h2");
+        withHeader.innerHTML = "With";
+        withHeader.style.display = "inline-block";
+        withHeader.style.marginBottom = "5px";
+        let withList = document.createElement("div");
+        withList.id = "with-list";
+        let [addWithSelectButton, addWithMultiselectButton, addWithValuesButton, addWithInsertButton, addWithUpdateButton, addWithDeleteButton] = generateAddWithButtons(withList);
+        for (let with_ of deleteObject.with) addWith(withList, with_.sqlObject, with_.recursive, with_.alias);
+
+        let fromHeader = document.createElement("h2");
+        fromHeader.innerHTML = "Delete from";
+        fromHeader.style.marginBottom = "0";
+        let fromInput = document.createElement("input");
+        fromInput.id = "from-input";
+        fromInput.type = "text";
+        fromInput.placeholder = "Table";
+        if (deleteObject.from) fromInput.value = deleteObject.from;
+        let asSpan = document.createElement("span");
+        asSpan.textContent = "AS";
+        asSpan.style.marginLeft = "5px";
+        let fromAliasInput = document.createElement("input");
+        fromAliasInput.id = "from-alias-input";
+        fromAliasInput.type = "text";
+        fromAliasInput.placeholder = "Alias";
+        fromAliasInput.style.marginLeft = "5px";
+        if (deleteObject.fromAlias) fromAliasInput.value = deleteObject.fromAlias;
+
+        let usingHeader = document.createElement("h2");
+        usingHeader.innerHTML = "Using";
+        usingHeader.style.display = "inline-block";
+        usingHeader.style.marginBottom = "5px";
+        let usingList = document.createElement("div");
+        usingList.id = "using-list";
+        let [addUsingExpressionButton, addUsingSelectButton, addUsingMultiselectButton, addUsingValuesButton] = generateFromButtons(usingList);
+        for (let using of deleteObject.using) addFrom(usingList, using.type, using.data, using.alias, using.join, using.lateral, using.condition);
+
+        let whereHeader = document.createElement("h2");
+        whereHeader.innerHTML = "Where";
+        whereHeader.style.marginBottom = "0";
+        let whereInput = document.createElement("input");
+        whereInput.id = "where-input";
+        whereInput.type = "text";
+        whereInput.placeholder = "Condition";
+        if (deleteObject.where) whereInput.value = deleteObject.where;
+
+        let returningHeader = document.createElement("h2");
+        returningHeader.innerHTML = "Returning";
+        returningHeader.style.display = "inline-block";
+        returningHeader.style.marginBottom = "5px";
+        let returningList = document.createElement("div");
+        returningList.id = "returning-list";
+        let addReturningButton = document.createElement("button");
+        addReturningButton.textContent = "+";
+        addReturningButton.style.marginLeft = "5px";
+        addReturningButton.classList.add("confirm-button");
+        addReturningButton.onclick = () => {
+            addSelect(returningList, "", "");
+        };
+        for (let returning of deleteObject.returning) addSelect(returningList, returning.expression, returning.alias);
+
+        queryBuilderContainer.innerHTML = "";
+        queryBuilderContainer.append(
+            withHeader, addWithSelectButton, addWithMultiselectButton, addWithValuesButton, addWithInsertButton, addWithUpdateButton, addWithDeleteButton, withList, document.createElement("div"),
+            fromHeader, fromInput, asSpan, fromAliasInput, document.createElement("div"),
+            usingHeader, addUsingExpressionButton, addUsingSelectButton, addUsingMultiselectButton, addUsingValuesButton, usingList, document.createElement("div"),
+            whereHeader, whereInput, document.createElement("div"),
+            returningHeader, addReturningButton, returningList
+        );
+    }
+
+
+    /*
+     * Generate a list of button HTML elements for existing FROM options.
+     */
+    function generateFromButtons(list) {
+        return [
+            ["+ expression",  "expression", createEmptyExpression],
+            ["+ select",      "select",     createEmptySelectObject],
+            ["+ multiselect", "select",     createEmptyMultiselectObject],
+            ["+ values",      "select",     createEmptyValuesObject]
+        ].map(([text, type, func]) => {
+            let addButton = document.createElement("button");
+            addButton.textContent = text;
+            addButton.style.marginLeft = "5px";
+            addButton.classList.add("confirm-button");
+            addButton.onclick = () => addFrom(list, type, func(), "", "CROSS JOIN", false, "");
+            return addButton;
+        });
+    }
+
+
+    /*
+     * Generate a list of button HTML elements for existing WITH options.
+     */
+    function generateAddWithButtons(withList) {
+        return [
+            ["+ select",      createEmptySelectObject],
+            ["+ multiselect", createEmptyMultiselectObject],
+            ["+ values",      createEmptyValuesObject],
+            ["+ insert",      createEmptyInsertObject],
+            ["+ update",      createEmptyUpdateObject],
+            ["+ delete",      createEmptyDeleteObject],
+        ].map(([text, func]) => {
+            let addButton = document.createElement("button");
+            addButton.textContent = text;
+            addButton.style.marginLeft = "5px";
+            addButton.classList.add("confirm-button");
+            addButton.onclick = () => addWith(withList, func(), false, "");
+            return addButton;
+        });
+    }
+
+
+    /*
+     * Create an empty expression value.
+     */
+    function createEmptyExpression() {
+        return "";
+    }
+
+
+    /*
+     * Create an empty expressions value.
+     */
+    function createEmptyExpressions() {
+        return [];
+    }
+
+
+    /*
+     * Create an empty SELECT value.
+     */
+    function createEmptySelectObject() {
+        return {
+            type: "select",
+            with: [],
+            selectType: "ALL",
+            select: [],
+            from: [],
+            where: null,
+            groupByType: "",
+            groupBy: [],
+            having: null,
+            orderBy: [],
+            limit: null,
+            offset: null
+        };
+    }
+
+
+    /*
+     * Create an empty MULTISELECT value.
+     */
+    function createEmptyMultiselectObject() {
+        return {
+            type: "multiselect",
+            with: [],
+            subselect: [],
+            orderBy: [],
+            limit: null,
+            offset: null
+        };
+    }
+
+
+    /*
+     * Create an empty VALUES value.
+     */
+    function createEmptyValuesObject() {
+        return {
+            type: "values",
+            values: []
+        };
+    }
+
+
+    /*
+     * Create an empty INSERT value.
+     */
+    function createEmptyInsertObject() {
+        return {
+            type: "insert",
+            with: [],
+            insert: null,
+            insertAlias: null,
+            insertFields: [],
+            insertData: {type: "DEFAULT VALUES", data: null},
+            onConflict: {type: "", data: null},
+            returning: []
+        };
+    }
+
+
+    /*
+     * Create an empty UPDATE value.
+     */
+    function createEmptyUpdateObject() {
+        return {
+            type: "update",
+            with: [],
+            update: null,
+            updateAlias: null,
+            set: [],
+            from: [],
+            where: null,
+            returning: []
+        };
+    }
+
+
+    /*
+     * Create an empty DELETE value.
+     */
+    function createEmptyDeleteObject() {
+        return {
+            type: "delete",
+            with: [],
+            from: null,
+            fromAlias: null,
+            using: [],
+            where: null,
+            returning: []
+        };
+    }
+
+
+    /*
+     * Initialize the query builder state.
+     */
+    function createRootObject(func) {
+        if (window.app.queryBuilderStack.length && !confirm("The old query will be lost. Create new query?")) return;
+
+        let emptyObject = func();
+        window.app.queryBuilderStack.length = 0;
+        window.app.queryBuilderStack.push(emptyObject);
+        fillQueryBuilderWithTopObject();
+    }
+
+
+    /*
+     * Initialize logic for the query builder control buttons.
+     */
+    function setupTopmostButtons() {
+        let topmostSelectButton = document.getElementById("topmost-select-button");
+        let topmostMultiselectButton = document.getElementById("topmost-multiselect-button");
+        let topmostInsertButton = document.getElementById("topmost-insert-button");
+        let topmostUpdateButton = document.getElementById("topmost-update-button");
+        let topmostDeleteButton = document.getElementById("topmost-delete-button");
+        let returnButton = document.getElementById("return-button");
+
+        topmostSelectButton.onclick = () => {
+            createRootObject(createEmptySelectObject);
+        };
+
+        topmostMultiselectButton.onclick = () => {
+            createRootObject(createEmptyMultiselectObject);
+        };
+
+        topmostInsertButton.onclick = () => {
+            createRootObject(createEmptyInsertObject);
+        };
+
+        topmostUpdateButton.onclick = () => {
+            createRootObject(createEmptyUpdateObject);
+        };
+
+        topmostDeleteButton.onclick = () => {
+            createRootObject(createEmptyDeleteObject);
+        };
+
+        returnButton.onclick = () => {
+            if (window.app.queryBuilderStack.length < 2)
+                alert("No query to return to");
+            else {
+                saveObjectChanges();
+                let previousTop = window.app.queryBuilderStack.pop();
+                fillQueryBuilderWithTopObject();
+                for (let div of document.getElementsByTagName("div"))
+                    if (div.underlyingSqlObject === previousTop) {
+                        div.scrollIntoView({behavior: "smooth"});
+                        break;
+                    }
+            }
+        };
+    }
+
+
+    /*
+     * Set up global constants.
+     */
+    function setupAppData() {
+        window.app = {};
+        window.app.types = [
+            "int8",
+            "int4",
+            "text",
+            "timestamp",
+            "boolean",
+            "date",
+            "float8",
+            "json",
+            "jsonb",
+            "numeric",
+            "float4",
+            "int2",
+            "time",
+            "uuid",
+            "xml"
+        ].sort();
+
+        window.app.tables = [];
+        window.app.modalFields = [];
+        window.app.currentTable = null;
+
+        window.app.queryBuilderStack = [];
+    }
+
+
+    /*
+     * Capitalize the input string.
+     */
+    function capitalize(s) {
+        return s.slice(0, 1).toUpperCase() + s.slice(1).toLowerCase();
+    }
+
+
+    setupAppData();
+    setupAddTableModalBehavior();
+    setupImportTablesModalBehavior();
+    setupExportButtonBehavior();
+    setupTopmostButtons();
+    setupViewSqlModalBehavior();
+</script>
